@@ -743,19 +743,23 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 	nodeInformer := informerFactory.Core().V1().Nodes().Informer()
 	nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			klog.Infof("Add called on Azure node informer")
 			node := obj.(*v1.Node)
 			az.updateNodeCaches(nil, node)
 		},
 		UpdateFunc: func(prev, obj interface{}) {
+			klog.Infof("Update called on Azure node informer")
 			prevNode := prev.(*v1.Node)
 			newNode := obj.(*v1.Node)
 			if newNode.Labels[v1.LabelTopologyZone] ==
 				prevNode.Labels[v1.LabelTopologyZone] {
+				klog.Infof("Same topology zone label (%v), skipping the update", prevNode.Labels[v1.LabelTopologyZone])
 				return
 			}
 			az.updateNodeCaches(prevNode, newNode)
 		},
 		DeleteFunc: func(obj interface{}) {
+			klog.Infof("Delete called on Azure node informer")
 			node, isNode := obj.(*v1.Node)
 			// We can get DeletedFinalStateUnknown instead of *v1.Node here
 			// and we need to handle that correctly.
@@ -771,6 +775,8 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 					return
 				}
 			}
+			klog.Infof("Delete called on Azure node informer: node=%s",
+				node.ObjectMeta.Name)
 			az.updateNodeCaches(node, nil)
 		},
 	})
@@ -779,6 +785,7 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 
 // updateNodeCaches updates local cache for node's zones and external resource groups.
 func (az *Cloud) updateNodeCaches(prevNode, newNode *v1.Node) {
+	klog.Infof("updateNodeCaches start")
 	az.nodeCachesLock.Lock()
 	defer az.nodeCachesLock.Unlock()
 
@@ -814,14 +821,29 @@ func (az *Cloud) updateNodeCaches(prevNode, newNode *v1.Node) {
 
 		// Remove from unmanagedNodes cache.
 		managed, ok := prevNode.ObjectMeta.Labels[managedByAzureLabel]
+		klog.V(2).Infof("prevNode=%s, ok=%v, managed=%v",
+			prevNode.ObjectMeta.Name, ok, managed)
+
 		if ok && managed == "false" {
+			klog.V(2).Infof("prevNode=%s, deleting from unmanagedNodes and excludeLoadBalancerNodes",
+				prevNode.ObjectMeta.Name)
+
 			az.unmanagedNodes.Delete(prevNode.ObjectMeta.Name)
 			az.excludeLoadBalancerNodes.Delete(prevNode.ObjectMeta.Name)
+			klog.V(2).Infof("prevNode=%s, now unmanagedNodes=%v  and excludeLoadBalancerNodes=%v",
+				prevNode.ObjectMeta.Name,
+				az.unmanagedNodes,
+				az.excludeLoadBalancerNodes)
+
 		}
 
 		// Remove from excludeLoadBalancerNodes cache.
+		klog.V(2).Infof("prevNode=%s, checking hasExcludeBalancerLabel...", prevNode.ObjectMeta.Name)
 		if _, hasExcludeBalancerLabel := prevNode.ObjectMeta.Labels[v1.LabelNodeExcludeBalancers]; hasExcludeBalancerLabel {
+			klog.V(2).Infof("prevNode=%s, hasExcludeBalancerLabel=true, calling az.excludeLoadBalancerNodes.Delete",
+				prevNode.ObjectMeta.Name)
 			az.excludeLoadBalancerNodes.Delete(prevNode.ObjectMeta.Name)
+
 		}
 	}
 
@@ -846,14 +868,34 @@ func (az *Cloud) updateNodeCaches(prevNode, newNode *v1.Node) {
 
 		// Add to unmanagedNodes cache.
 		managed, ok := newNode.ObjectMeta.Labels[managedByAzureLabel]
+		klog.V(2).Infof("newNode=%s, managed=%v, ok=%v",
+			newNode.ObjectMeta.Name, managed, ok)
+
 		if ok && managed == "false" {
+			klog.V(2).Infof("newNode=%s, managed is false...",
+				newNode.ObjectMeta.Name, managed, ok)
+
 			az.unmanagedNodes.Insert(newNode.ObjectMeta.Name)
 			az.excludeLoadBalancerNodes.Insert(newNode.ObjectMeta.Name)
+
+			klog.V(2).Infof("newNode=%s, now az.unmanagedNodes=%v, az.excludeLoadBalancerNodes=%v",
+				newNode.ObjectMeta.Name,
+				az.unmanagedNodes,
+				az.excludeLoadBalancerNodes)
+
 		}
 
 		// Add to excludeLoadBalancerNodes cache.
-		if _, hasExcludeBalancerLabel := newNode.ObjectMeta.Labels[v1.LabelNodeExcludeBalancers]; hasExcludeBalancerLabel {
+		_, hasExcludeBalancerLabel := newNode.ObjectMeta.Labels[v1.LabelNodeExcludeBalancers]
+		klog.V(2).Infof("newNode=%s, hasExcludeBalancerLabel=%v...",
+			newNode.ObjectMeta.Name, hasExcludeBalancerLabel)
+
+		if hasExcludeBalancerLabel {
 			az.excludeLoadBalancerNodes.Insert(newNode.ObjectMeta.Name)
+			klog.V(2).Infof("newNode=%s, hasExcludeBalancerLabel=true, "+
+				"adding it to az.excludeLoadBalancerNodes, which is now: %v",
+				newNode.ObjectMeta.Name, az.excludeLoadBalancerNodes)
+
 		}
 	}
 }
@@ -961,6 +1003,11 @@ func (az *Cloud) GetUnmanagedNodes() (sets.String, error) {
 
 // ShouldNodeExcludedFromLoadBalancer returns true if node is unmanaged, in external resource group or labeled with "node.kubernetes.io/exclude-from-external-load-balancers".
 func (az *Cloud) ShouldNodeExcludedFromLoadBalancer(nodeName string) (bool, error) {
+	klog.V(2).Infof("ShouldNodeExcludedFromLoadBalancer called on nodeName=%s ",
+		nodeName)
+
+	klog.V(2).Infof("nodeName=%s, checking if az.nodeInformerSynced is nil (%v)",
+		nodeName, az.nodeInformerSynced)
 	// Kubelet won't set az.nodeInformerSynced, always return nil.
 	if az.nodeInformerSynced == nil {
 		return false, nil
@@ -968,14 +1015,26 @@ func (az *Cloud) ShouldNodeExcludedFromLoadBalancer(nodeName string) (bool, erro
 
 	az.nodeCachesLock.RLock()
 	defer az.nodeCachesLock.RUnlock()
+
+	klog.V(2).Infof("nodeName=%s, checking  !az.nodeInformerSynced() (%v)",
+		nodeName, !az.nodeInformerSynced())
+
 	if !az.nodeInformerSynced() {
 		return false, fmt.Errorf("node informer is not synced when trying to fetch node caches")
 	}
+
+	cachedRG_, ok_ := az.nodeResourceGroups[nodeName]
+	cond_ := ok_ && !strings.EqualFold(cachedRG_, az.ResourceGroup)
+	klog.V(2).Infof("nodeName=%s, checking that az.nodeResourceGroups[nodeName] (%v) !=  az.ResourceGroup (%v); cond_=%v",
+		nodeName, cachedRG_, az.ResourceGroup, cond_)
 
 	// Return true if the node is in external resource group.
 	if cachedRG, ok := az.nodeResourceGroups[nodeName]; ok && !strings.EqualFold(cachedRG, az.ResourceGroup) {
 		return true, nil
 	}
+
+	klog.V(2).Infof("nodeName=%s, az.excludeLoadBalancerNodes=%v, node is in it: %v",
+		nodeName, az.excludeLoadBalancerNodes, az.excludeLoadBalancerNodes.Has(nodeName))
 
 	return az.excludeLoadBalancerNodes.Has(nodeName), nil
 }
