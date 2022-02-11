@@ -744,18 +744,44 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 	nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			klog.Infof("Add called on Azure node informer")
-			node := obj.(*v1.Node)
+			node, isNode := obj.(*v1.Node)
+			if !isNode {
+				klog.Infof("[Add] Not a Node! obj=%v", obj)
+				return
+			}
+			klog.Infof("Update called on Azure node informer: node=%s",
+				node.ObjectMeta.Name)
 			az.updateNodeCaches(nil, node)
 		},
 		UpdateFunc: func(prev, obj interface{}) {
 			klog.Infof("Update called on Azure node informer")
-			prevNode := prev.(*v1.Node)
-			newNode := obj.(*v1.Node)
-			if newNode.Labels[v1.LabelTopologyZone] ==
-				prevNode.Labels[v1.LabelTopologyZone] {
+			prevNode, isNodePrev := prev.(*v1.Node)
+			newNode, isNodeNew := obj.(*v1.Node)
+			if !isNodePrev || ! isNodeNew {
+				klog.Infof("Update called on Azure node informer: NOT A NODE!"+
+					" is NodePrev=%v, isNodeNew=%v",
+					isNodePrev, isNodeNew)
+				if !isNodePrev {
+					klog.Infof("prevNode=%v", prev)
+				}
+				if !isNodeNew {
+					klog.Infof("newNode=%v", obj)
+				}
 				return
+
 			}
+			klog.Infof("Update called on Azure node informer: old=%s, new=%s",
+				prevNode.ObjectMeta.Name, newNode.ObjectMeta.Name)
+			klog.Infof("prevNode.Labels[v1.LabelNodeExcludeBalancers]=%v, oldNode.Labels[v1.LabelNodeExcludeBalancers]",
+				prevNode.Labels[v1.LabelNodeExcludeBalancers],
+				newNode.Labels[v1.LabelNodeExcludeBalancers])
+
+			// if (newNode.Labels[v1.LabelTopologyZone] != prevNode.Labels[v1.LabelTopologyZone]) ||
+			// 	(newNode.Labels[v1.LabelNodeExcludeBalancers] != prevNode.Labels[v1.LabelNodeExcludeBalancers]) {
+			// 	az.updateNodeCaches(prevNode, newNode)
+			// }
 			az.updateNodeCaches(prevNode, newNode)
+
 		},
 		DeleteFunc: func(obj interface{}) {
 			klog.Infof("Delete called on Azure node informer")
@@ -763,6 +789,7 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 			// We can get DeletedFinalStateUnknown instead of *v1.Node here
 			// and we need to handle that correctly.
 			if !isNode {
+				klog.Infof("Not a node!!!")
 				deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
 				if !ok {
 					klog.Errorf("Received unexpected object: %v", obj)
@@ -774,6 +801,8 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 					return
 				}
 			}
+			klog.Infof("Delete called on Azure node informer: node=%s",
+				node.ObjectMeta.Name)
 			az.updateNodeCaches(node, nil)
 		},
 	})
