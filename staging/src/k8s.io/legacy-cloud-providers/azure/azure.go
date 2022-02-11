@@ -751,11 +751,8 @@ func (az *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 			klog.Infof("Update called on Azure node informer")
 			prevNode := prev.(*v1.Node)
 			newNode := obj.(*v1.Node)
-			if newNode.Labels[v1.LabelTopologyZone] ==
-				prevNode.Labels[v1.LabelTopologyZone] {
-				klog.Infof("Same topology zone label (%v), skipping the update", prevNode.Labels[v1.LabelTopologyZone])
-				return
-			}
+			klog.Infof("Update called on Azure node informer: old=%s, new=%s",
+				prevNode.ObjectMeta.Name, newNode.ObjectMeta.Name)
 			az.updateNodeCaches(prevNode, newNode)
 		},
 		DeleteFunc: func(obj interface{}) {
