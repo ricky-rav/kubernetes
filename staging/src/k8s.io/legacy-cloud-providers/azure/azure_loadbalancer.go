@@ -205,6 +205,7 @@ func (az *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, ser
 
 	updateService := updateServiceLoadBalancerIP(service, to.String(serviceIP))
 	flippedService := flipServiceInternalAnnotation(updateService)
+	klog.V(2).Infof("EnsureLoadBalancer: calling reconcileLoadBalancer on flipped (external/internal) service %s ", serviceName)
 	if _, err := az.reconcileLoadBalancer(clusterName, flippedService, nil, false /* wantLb */); err != nil {
 		klog.Errorf("reconcileLoadBalancer(%s) failed: %#v", serviceName, err)
 		return nil, err
@@ -290,6 +291,8 @@ func (az *Cloud) getLoadBalancerResourceGroup() string {
 // SLB's backend pool contains nodes from different agent pools, while we only want the
 // nodes from the primary agent pool to join the backend pool.
 func (az *Cloud) cleanBackendpoolForPrimarySLB(primarySLB *network.LoadBalancer, service *v1.Service, clusterName string) (*network.LoadBalancer, error) {
+	klog.V(2).Infof("[cleanBackendpoolForPrimarySLB] start, service (%v): FINISH", service.Name)
+
 	lbBackendPoolName := getBackendPoolName(clusterName, service)
 	lbResourceGroup := az.getLoadBalancerResourceGroup()
 	lbBackendPoolID := az.getBackendPoolID(to.String(primarySLB.Name), lbResourceGroup, lbBackendPoolName)
@@ -1174,8 +1177,9 @@ func (az *Cloud) reconcileLoadBalancer(clusterName string, service *v1.Service, 
 						// decouple the backendPool from the node
 						klog.V(2).Infof("calling EnsureBackendPoolDeleted on (%v, %v, %v, %v, %v) ",
 							service, lbBackendPoolID, vmSetName, backendpoolToBeDeleted, false)
-						err = az.VMSet.EnsureBackendPoolDeleted(service, lbBackendPoolID, vmSetName, backendpoolToBeDeleted, false)
+						err = az.VMSet.EnsureBackendPoolDeleted(service, lbBackendPoolID, vmSetName, backendpoolToBeDeleted, false) // why false?? what will it do, then?
 						if err != nil {
+							klog.V(2).Infof("EnsureBackendPoolDeleted returned an error: %v", err)
 							return nil, err
 						}
 					}

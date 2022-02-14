@@ -1591,7 +1591,7 @@ func (ss *scaleSet) ensureBackendPoolDeletedFromVMSS(service *v1.Service, backen
 
 // EnsureBackendPoolDeleted ensures the loadBalancer backendAddressPools deleted from the specified nodes.
 func (ss *scaleSet) EnsureBackendPoolDeleted(service *v1.Service, backendPoolID, vmSetName string, backendAddressPools *[]network.BackendAddressPool, deleteFromVMSet bool) error {
-	klog.V(2).Infof("EnsureBackendPoolDeleted called on service=%v, backendPoolID=%s, "+
+	klog.V(2).Infof("(ss *scaleSet) EnsureBackendPoolDeleted called on service=%v, backendPoolID=%s, "+
 		"vmSetName=%s, backendAddressPools=%v, deleteFromVMSet=%v",
 		service, backendPoolID, vmSetName, backendAddressPools, deleteFromVMSet)
 	// Returns nil if backend address pools already deleted.

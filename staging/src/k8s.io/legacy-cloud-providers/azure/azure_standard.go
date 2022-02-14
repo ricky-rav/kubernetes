@@ -946,6 +946,10 @@ func (as *availabilitySet) EnsureHostsInPool(service *v1.Service, nodes []*v1.No
 
 // EnsureBackendPoolDeleted ensures the loadBalancer backendAddressPools deleted from the specified nodes.
 func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backendPoolID, vmSetName string, backendAddressPools *[]network.BackendAddressPool, deleteFromVMSet bool) error {
+	klog.V(2).Infof(" (as *availabilitySet) EnsureBackendPoolDeleted started wih service.Name=%v,"+
+		" backendPoolID=%s, vmSetName=%s, backendAddressPools=%v, deleteFromVMSet=%v",
+		service.Name, backendPoolID, vmSetName, backendAddressPools, deleteFromVMSet)
+
 	// Returns nil if backend address pools already deleted.
 	if backendAddressPools == nil {
 		return nil
@@ -955,6 +959,8 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 	isOperationSucceeded := false
 	defer func() {
 		mc.ObserveOperationWithResult(isOperationSucceeded)
+		klog.V(2).Infof("EnsureBackendPoolDeleted ended")
+
 	}()
 
 	ipConfigurationIDs := []string{}
@@ -971,6 +977,8 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 			}
 		}
 	}
+	klog.V(2).Infof("[EnsureBackendPoolDeleted] ipConfigurationIDs=%v", ipConfigurationIDs)
+
 	nicUpdaters := make([]func() error, 0)
 	allErrs := make([]error, 0)
 	for i := range ipConfigurationIDs {
@@ -981,12 +989,21 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 			allErrs = append(allErrs, err)
 			continue
 		}
+		klog.V(2).Infof("[EnsureBackendPoolDeleted] processing ipConfigurationID=%v, nodeName=%s",
+			ipConfigurationID, nodeName)
+
 		if nodeName == "" {
 			continue
 		}
 
 		vmName := mapNodeNameToVMName(types.NodeName(nodeName))
+		klog.V(2).Infof("[EnsureBackendPoolDeleted] processing ipConfigurationID=%v, vmName=%s",
+			ipConfigurationID, vmName)
+
 		nic, vmasID, err := as.getPrimaryInterfaceWithVMSet(vmName, vmSetName)
+		klog.V(2).Infof("[EnsureBackendPoolDeleted] processing ipConfigurationID=%v, nic=%v, vmasID=%v, err=%s",
+			ipConfigurationID, nic, vmasID, err)
+
 		if err != nil {
 			if err == errNotInVMSet {
 				klog.V(3).Infof("EnsureBackendPoolDeleted skips node %s because it is not in the vmSet %s", nodeName, vmSetName)
@@ -1000,6 +1017,7 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 		if err != nil {
 			return fmt.Errorf("EnsureBackendPoolDeleted: failed to parse the VMAS ID %s: %v", vmasID, err)
 		}
+		klog.V(2).Infof("EnsureBackendPoolDeleted: node %s, vmasName=%s,  vmSetName=%s", nodeName, vmasName, vmSetName)
 		// Only remove nodes belonging to specified vmSet to basic LB backends.
 		if !strings.EqualFold(vmasName, vmSetName) {
 			klog.V(2).Infof("EnsureBackendPoolDeleted: skipping the node %s belonging to another vm set %s", nodeName, vmasName)
@@ -1017,7 +1035,7 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 				if !to.Bool(ipConf.Primary) {
 					continue
 				}
-				// found primary ip configuration
+				// found primary ip configuration and remove the IP corresponding to the backend we want to eliminate
 				if ipConf.LoadBalancerBackendAddressPools != nil {
 					newLBAddressPools := *ipConf.LoadBalancerBackendAddressPools
 					for k := len(newLBAddressPools) - 1; k >= 0; k-- {
