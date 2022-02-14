@@ -141,8 +141,9 @@ func (az *Cloud) mapLoadBalancerNameToVMSet(lbName string, clusterName string) (
 	vmSetName = strings.TrimSuffix(lbName, InternalLoadBalancerNameSuffix)
 	if strings.EqualFold(clusterName, vmSetName) {
 		vmSetName = az.VMSet.GetPrimaryVMSetName()
+		klog.V(2).Infof("[mapLoadBalancerNameToVMSet] GetPrimaryVMSetName=%v", vmSetName)
 	}
-
+	klog.V(2).Infof("[mapLoadBalancerNameToVMSet] vmSetName=%v", vmSetName)
 	return vmSetName
 }
 
@@ -574,6 +575,7 @@ func (as *availabilitySet) GetZoneByNodeName(name string) (cloudprovider.Zone, e
 // GetPrimaryVMSetName returns the VM set name depending on the configured vmType.
 // It returns config.PrimaryScaleSetName for vmss and config.PrimaryAvailabilitySetName for standard vmType.
 func (as *availabilitySet) GetPrimaryVMSetName() string {
+	klog.V(2).Infof("GetPrimaryVMSetName, value=%s", as.Config.PrimaryAvailabilitySetName)
 	return as.Config.PrimaryAvailabilitySetName
 }
 
@@ -915,7 +917,7 @@ func (as *availabilitySet) EnsureHostsInPool(service *v1.Service, nodes []*v1.No
 		}
 
 		if as.ShouldNodeExcludedFromLoadBalancer(node) {
-			klog.V(4).Infof("Excluding unmanaged/external-resource-group node %q", localNodeName)
+			klog.V(2).Infof("Excluding unmanaged/external-resource-group node %q", localNodeName)
 			continue
 		}
 
@@ -940,6 +942,10 @@ func (as *availabilitySet) EnsureHostsInPool(service *v1.Service, nodes []*v1.No
 
 // EnsureBackendPoolDeleted ensures the loadBalancer backendAddressPools deleted from the specified nodes.
 func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backendPoolID, vmSetName string, backendAddressPools *[]network.BackendAddressPool) error {
+	klog.V(2).Infof(" (as *availabilitySet) EnsureBackendPoolDeleted started wih service.Name=%v,"+
+		" backendPoolID=%s, vmSetName=%s, backendAddressPools=%v",
+		service.Name, backendPoolID, vmSetName, backendAddressPools)
+
 	// Returns nil if backend address pools already deleted.
 	if backendAddressPools == nil {
 		return nil
@@ -949,6 +955,8 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 	isOperationSucceeded := false
 	defer func() {
 		mc.ObserveOperationWithResult(isOperationSucceeded)
+		klog.V(2).Infof("EnsureBackendPoolDeleted ended")
+
 	}()
 
 	ipConfigurationIDs := []string{}
@@ -965,6 +973,8 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 			}
 		}
 	}
+	klog.V(2).Infof("[EnsureBackendPoolDeleted] ipConfigurationIDs=%v", ipConfigurationIDs)
+
 	nicUpdaters := make([]func() error, 0)
 	allErrs := make([]error, 0)
 	for i := range ipConfigurationIDs {
@@ -975,12 +985,21 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 			allErrs = append(allErrs, err)
 			continue
 		}
+		klog.V(2).Infof("[EnsureBackendPoolDeleted] processing ipConfigurationID=%v, nodeName=%s",
+			ipConfigurationID, nodeName)
+
 		if nodeName == "" {
 			continue
 		}
 
 		vmName := mapNodeNameToVMName(types.NodeName(nodeName))
+		klog.V(2).Infof("[EnsureBackendPoolDeleted] processing ipConfigurationID=%v, vmName=%s",
+			ipConfigurationID, vmName)
+
 		nic, vmasID, err := as.getPrimaryInterfaceWithVMSet(vmName, vmSetName)
+		klog.V(2).Infof("[EnsureBackendPoolDeleted] processing ipConfigurationID=%v, nic=%v, vmasID=%v, err=%s",
+			ipConfigurationID, nic, vmasID, err)
+
 		if err != nil {
 			if err == errNotInVMSet {
 				klog.V(3).Infof("EnsureBackendPoolDeleted skips node %s because it is not in the vmSet %s", nodeName, vmSetName)
@@ -994,6 +1013,7 @@ func (as *availabilitySet) EnsureBackendPoolDeleted(service *v1.Service, backend
 		if err != nil {
 			return fmt.Errorf("EnsureBackendPoolDeleted: failed to parse the VMAS ID %s: %v", vmasID, err)
 		}
+		klog.V(2).Infof("EnsureBackendPoolDeleted: node %s, vmasName=%s,  vmSetName=%s", nodeName, vmasName, vmSetName)
 		// Only remove nodes belonging to specified vmSet to basic LB backends.
 		if !strings.EqualFold(vmasName, vmSetName) {
 			klog.V(2).Infof("EnsureBackendPoolDeleted: skipping the node %s belonging to another vm set %s", nodeName, vmasName)

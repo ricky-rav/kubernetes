@@ -786,7 +786,7 @@ func (s *Controller) lockedUpdateLoadBalancerHosts(service *v1.Service, hosts []
 	startTime := time.Now()
 	defer func() {
 		latency := time.Since(startTime).Seconds()
-		klog.V(4).Infof("It took %v seconds to update load balancer hosts for service %s/%s", latency, service.Namespace, service.Name)
+		klog.V(2).Infof("It took %v seconds to update load balancer hosts for service %s/%s", latency, service.Namespace, service.Name)
 		updateLoadBalancerHostLatency.Observe(latency)
 	}()
 
@@ -806,6 +806,7 @@ func (s *Controller) lockedUpdateLoadBalancerHosts(service *v1.Service, hosts []
 		// ImplementedElsewhere indicates that the UpdateLoadBalancer is a nop and the
 		// functionality is implemented by a different controller.  In this case, we
 		// return immediately without doing anything.
+		klog.V(2).Infof("[lockedUpdateLoadBalancerHosts] service=%s: controller is implemented elsewhere", service.Name)
 		return nil
 	}
 	// It's only an actual error if the load balancer still exists.
