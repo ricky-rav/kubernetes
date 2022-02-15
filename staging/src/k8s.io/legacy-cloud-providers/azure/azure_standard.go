@@ -29,8 +29,6 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/klog"
-
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-12-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2019-06-01/network"
 	"github.com/Azure/go-autorest/autorest/to"
