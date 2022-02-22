@@ -1130,11 +1130,6 @@ func (az *Cloud) reconcileLoadBalancer(clusterName string, service *v1.Service, 
 
 				var backendIPConfigurationsToBeDeleted []network.InterfaceIPConfiguration
 
-				klog.V(2).Infof("checking that bp.BackendAddressPoolPropertiesFormat != nil "+
-					"&& bp.BackendIPConfigurations != nil",
-					bp.BackendAddressPoolPropertiesFormat,
-					bp.BackendIPConfigurations)
-
 				if bp.BackendAddressPoolPropertiesFormat != nil && bp.BackendIPConfigurations != nil {
 					klog.V(2).Infof("if condition was true...")
 					for _, ipConf := range *bp.BackendIPConfigurations {

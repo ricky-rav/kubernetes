@@ -871,6 +871,12 @@ func (az *Cloud) updateNodeCaches(prevNode, newNode *v1.Node) {
 			az.excludeLoadBalancerNodes.Delete(prevNode.ObjectMeta.Name)
 
 		}
+
+		// If not in ready state, remove from excludeLoadBalancerNodes cache.
+		if !isNodeReady(prevNode) {
+			klog.V(2).Infof("Removing from cache previous non-ready node %v", prevNode.ObjectMeta.Name)
+			az.excludeLoadBalancerNodes.Delete(prevNode.ObjectMeta.Name)
+		}
 	}
 
 	if newNode != nil {
@@ -922,6 +928,15 @@ func (az *Cloud) updateNodeCaches(prevNode, newNode *v1.Node) {
 				"adding it to az.excludeLoadBalancerNodes, which is now: %v",
 				newNode.ObjectMeta.Name, az.excludeLoadBalancerNodes)
 
+		}
+
+		// If not in ready state, add to excludeLoadBalancerNodes cache.
+		if !isNodeReady(newNode) {
+			// We consider the node for load balancing only when its NodeReady
+			// status is ConditionTrue
+			klog.V(2).Infof("Adding to excludeLoadBalancerNodes non-ready node %v",
+				newNode.ObjectMeta.Name)
+			az.excludeLoadBalancerNodes.Insert(newNode.ObjectMeta.Name)
 		}
 	}
 }
@@ -1063,4 +1078,24 @@ func (az *Cloud) ShouldNodeExcludedFromLoadBalancer(nodeName string) (bool, erro
 		nodeName, az.excludeLoadBalancerNodes, az.excludeLoadBalancerNodes.Has(nodeName))
 
 	return az.excludeLoadBalancerNodes.Has(nodeName), nil
+}
+
+
+func isNodeReady(node *v1.Node) bool   {
+	// If we have no info, node is not ready
+	if len(node.Status.Conditions) == 0 {
+		klog.V(4).Infof("considering as not ready node %v with no Status.Conditions",
+			node.ObjectMeta.Name)
+		return false
+
+        }
+
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == v1.NodeReady && cond.Status != v1.ConditionTrue {
+			klog.V(2).Infof("node %v is not ready: %v condition status %v",
+				node.ObjectMeta.Name, cond.Type, cond.Status)
+			return false
+		}
+	}
+	return true
 }
