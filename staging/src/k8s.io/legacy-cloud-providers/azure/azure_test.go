@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	cloudprovider "k8s.io/cloud-provider"
+	cloudproviderapi "k8s.io/cloud-provider/api"
 	servicehelpers "k8s.io/cloud-provider/service/helpers"
 	"k8s.io/legacy-cloud-providers/azure/auth"
 	"k8s.io/legacy-cloud-providers/azure/clients/interfaceclient/mockinterfaceclient"
@@ -1404,7 +1405,7 @@ func getAvailabilitySetName(az *Cloud, vmIndex int, numAS int) string {
 }
 
 // test supporting on 1 nic per vm
-// we really dont care about the name of the nic
+// we really don't care about the name of the nic
 // just using the vm name for testing purposes
 func getNICName(vmIndex int) string {
 	return getVMName(vmIndex)
@@ -3227,7 +3228,7 @@ func TestUpdateNodeCaches(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	az := GetTestCloud(ctrl)
-
+	// delete node appearing in unmanagedNodes and excludeLoadBalancerNodes
 	zone := fmt.Sprintf("%s-0", az.Location)
 	nodesInZone := sets.NewString("prevNode")
 	az.nodeZones = map[string]sets.String{zone: nodesInZone}
@@ -3245,13 +3246,15 @@ func TestUpdateNodeCaches(t *testing.T) {
 			Name: "prevNode",
 		},
 	}
-
+	// node is deleted from the cluster
 	az.updateNodeCaches(&prevNode, nil)
 	assert.Equal(t, 0, len(az.nodeZones[zone]))
 	assert.Equal(t, 0, len(az.nodeResourceGroups))
 	assert.Equal(t, 0, len(az.unmanagedNodes))
-	assert.Equal(t, 0, len(az.excludeLoadBalancerNodes))
+	// deleted node should be excluded from load balancer
+	assert.Equal(t, 1, len(az.excludeLoadBalancerNodes))
 
+	// add new (unmanaged and to-be-excluded) node
 	newNode := v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
@@ -3263,12 +3266,12 @@ func TestUpdateNodeCaches(t *testing.T) {
 			Name: "newNode",
 		},
 	}
-
+	// new node is added to the cluster
 	az.updateNodeCaches(nil, &newNode)
 	assert.Equal(t, 1, len(az.nodeZones[zone]))
 	assert.Equal(t, 1, len(az.nodeResourceGroups))
 	assert.Equal(t, 1, len(az.unmanagedNodes))
-	assert.Equal(t, 1, len(az.excludeLoadBalancerNodes))
+	assert.Equal(t, 2, len(az.excludeLoadBalancerNodes))
 }
 
 func TestUpdateNodeCacheExcludeLoadBalancer(t *testing.T) {
@@ -3282,7 +3285,6 @@ func TestUpdateNodeCacheExcludeLoadBalancer(t *testing.T) {
 	az.nodeResourceGroups = map[string]string{"prevNode": "rg"}
 	az.unmanagedNodes = sets.NewString("prevNode")
 	az.excludeLoadBalancerNodes = sets.NewString()
-	az.nodeNames = sets.NewString("prevNode")
 
 	// excluded node cache shall be updated even if the topology label does not change
 	prevNode := v1.Node{
@@ -3305,6 +3307,74 @@ func TestUpdateNodeCacheExcludeLoadBalancer(t *testing.T) {
 	az.updateNodeCaches(&prevNode, &newNode)
 	assert.Equal(t, 1, len(az.excludeLoadBalancerNodes))
 
+	// a non-ready node should be excluded
+	az.unmanagedNodes = sets.NewString()
+	az.excludeLoadBalancerNodes = sets.NewString()
+	nonReadyNode := v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.LabelTopologyZone: zone,
+			},
+			Name: "aNode",
+		},
+		Status: v1.NodeStatus{
+			Conditions: []v1.NodeCondition{
+				{
+					Type:   v1.NodeReady,
+					Status: v1.ConditionFalse,
+				},
+			},
+		},
+	}
+	az.updateNodeCaches(nil, &nonReadyNode)
+	assert.Equal(t, 1, len(az.excludeLoadBalancerNodes))
+
+	// node becomes ready, it should be removed from az.excludeLoadBalancerNodes
+	readyNode := v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.LabelTopologyZone: zone,
+			},
+			Name: "aNode",
+		},
+		Status: v1.NodeStatus{
+			Conditions: []v1.NodeCondition{
+				{
+					Type:   v1.NodeReady,
+					Status: v1.ConditionTrue,
+				},
+			},
+		},
+	}
+	az.updateNodeCaches(&nonReadyNode, &readyNode)
+	assert.Equal(t, 0, len(az.excludeLoadBalancerNodes))
+
+	// new non-ready node with taint is added to the cluster: don't exclude it
+	nonReadyTaintedNode := v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.LabelTopologyZone: zone,
+			},
+			Name: "anotherNode",
+		},
+		Spec: v1.NodeSpec{
+			Taints: []v1.Taint{{
+				Key:    cloudproviderapi.TaintExternalCloudProvider,
+				Value:  "aValue",
+				Effect: v1.TaintEffectNoSchedule},
+			},
+		},
+		Status: v1.NodeStatus{
+			Conditions: []v1.NodeCondition{
+				{
+					Type:   v1.NodeReady,
+					Status: v1.ConditionFalse,
+				},
+			},
+		},
+	}
+	az.updateNodeCaches(nil, &nonReadyTaintedNode)
+	assert.Equal(t, 0, len(az.excludeLoadBalancerNodes))
 }
 
 func TestGetActiveZones(t *testing.T) {
