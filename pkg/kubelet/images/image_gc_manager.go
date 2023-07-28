@@ -100,14 +100,8 @@ type realImageGCManager struct {
 	// Reference to this node.
 	nodeRef *v1.ObjectReference
 
-	// Track initialization
-	initialized bool
-
 	// imageCache is the cache of latest image list.
 	imageCache imageCache
-
-	// sandbox image exempted from GC
-	sandboxImage string
 
 	// tracer for recording spans
 	tracer trace.Tracer
@@ -160,7 +154,7 @@ type imageRecord struct {
 }
 
 // NewImageGCManager instantiates a new ImageGCManager object.
-func NewImageGCManager(runtime container.Runtime, statsProvider StatsProvider, recorder record.EventRecorder, nodeRef *v1.ObjectReference, policy ImageGCPolicy, sandboxImage string, tracerProvider trace.TracerProvider) (ImageGCManager, error) {
+func NewImageGCManager(runtime container.Runtime, statsProvider StatsProvider, recorder record.EventRecorder, nodeRef *v1.ObjectReference, policy ImageGCPolicy, tracerProvider trace.TracerProvider) (ImageGCManager, error) {
 	// Validate policy.
 	if policy.HighThresholdPercent < 0 || policy.HighThresholdPercent > 100 {
 		return nil, fmt.Errorf("invalid HighThresholdPercent %d, must be in range [0-100]", policy.HighThresholdPercent)
@@ -179,8 +173,6 @@ func NewImageGCManager(runtime container.Runtime, statsProvider StatsProvider, r
 		statsProvider: statsProvider,
 		recorder:      recorder,
 		nodeRef:       nodeRef,
-		initialized:   false,
-		sandboxImage:  sandboxImage,
 		tracer:        tracer,
 	}
 
@@ -190,16 +182,9 @@ func NewImageGCManager(runtime container.Runtime, statsProvider StatsProvider, r
 func (im *realImageGCManager) Start() {
 	ctx := context.Background()
 	go wait.Until(func() {
-		// Initial detection make detected time "unknown" in the past.
-		var ts time.Time
-		if im.initialized {
-			ts = time.Now()
-		}
-		_, err := im.detectImages(ctx, ts)
+		_, err := im.detectImages(ctx, time.Now())
 		if err != nil {
 			klog.InfoS("Failed to monitor images", "err", err)
-		} else {
-			im.initialized = true
 		}
 	}, 5*time.Minute, wait.NeverStop)
 
@@ -222,12 +207,6 @@ func (im *realImageGCManager) GetImageList() ([]container.Image, error) {
 
 func (im *realImageGCManager) detectImages(ctx context.Context, detectTime time.Time) (sets.String, error) {
 	imagesInUse := sets.NewString()
-
-	// Always consider the container runtime pod sandbox image in use
-	imageRef, err := im.runtime.GetImageRef(ctx, container.ImageSpec{Image: im.sandboxImage})
-	if err == nil && imageRef != "" {
-		imagesInUse.Insert(imageRef)
-	}
 
 	images, err := im.runtime.ListImages(ctx)
 	if err != nil {
